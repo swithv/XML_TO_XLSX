@@ -50,7 +50,7 @@ class XMLParser:
     
     def _parse_single_xml(self, filename: str, xml_content: bytes) -> Dict[str, Any]:
         """
-        Faz parse de um único XML
+        Faz parse de um único XML com busca aprimorada
         
         Args:
             filename: Nome do arquivo
@@ -66,8 +66,12 @@ class XMLParser:
             # Parse XML para dicionário
             xml_dict = xmltodict.parse(xml_string)
             
+            # DEBUG: Log da estrutura encontrada
+            logger.info(f"Processando: {filename}")
+            logger.debug(f"Chaves raiz do XML: {list(xml_dict.keys())}")
+            
             # Extrai dados baseado no mapeamento de campos
-            extracted_data = self._extract_fields(xml_dict)
+            extracted_data = self._extract_fields_enhanced(xml_dict, filename)
             
             # Adiciona metadados
             extracted_data['_arquivo_origem'] = filename
@@ -78,47 +82,118 @@ class XMLParser:
             logger.error(f"Erro ao parsear {filename}: {e}")
             return None
     
-    def _extract_fields(self, xml_dict: Dict) -> Dict[str, Any]:
+    def _extract_fields_enhanced(self, xml_dict: Dict, filename: str) -> Dict[str, Any]:
         """
-        Extrai campos específicos do XML baseado no mapeamento
+        Extrai campos com busca recursiva melhorada
         
         Args:
             xml_dict: Dicionário convertido do XML
+            filename: Nome do arquivo (para debug)
             
         Returns:
             Dicionário com campos extraídos
         """
         data = {}
         
-        # Para cada campo no mapeamento, tenta encontrar o valor
+        # Para cada campo no mapeamento
         for field_name, possible_paths in self.field_mapping.items():
             value = None
+            found_path = None
             
-            # Tenta cada path possível até encontrar um valor
+            # Tenta cada path possível
             for path in possible_paths:
                 value = get_nested_value(xml_dict, path)
-                if value is not None:
+                if value is not None and value != '':
+                    found_path = path
                     break
             
+            # Se não encontrou, tenta busca recursiva
+            if value is None or value == '':
+                # Busca por palavras-chave
+                if 'Nota' in field_name or 'Número' in field_name:
+                    value = self._search_recursive(xml_dict, ['nNF', 'numero'])
+                elif 'Data' in field_name and 'Emissão' in field_name:
+                    value = self._search_recursive(xml_dict, ['dhEmi', 'dEmi', 'dataEmissao'])
+                elif 'CNPJ' in field_name and 'Emitente' in field_name:
+                    value = self._search_recursive(xml_dict, ['CNPJ'], context='emit')
+                elif 'Nome' in field_name and 'Emitente' in field_name:
+                    value = self._search_recursive(xml_dict, ['xNome', 'nome'], context='emit')
+                elif 'CNPJ' in field_name and 'Destinatário' in field_name:
+                    value = self._search_recursive(xml_dict, ['CNPJ'], context='dest')
+                elif 'Nome' in field_name and 'Destinatário' in field_name:
+                    value = self._search_recursive(xml_dict, ['xNome', 'nome'], context='dest')
+                elif 'Valor Total' in field_name:
+                    value = self._search_recursive(xml_dict, ['vNF', 'valorNF', 'vTotal'])
+                elif 'Valor Produtos' in field_name:
+                    value = self._search_recursive(xml_dict, ['vProd', 'valorProd'])
+                elif 'Chave' in field_name:
+                    value = self._search_recursive(xml_dict, ['chNFe', 'chave'])
+            
             # Processa o valor encontrado
-            if value is not None:
+            if value is not None and value != '':
                 # Converte valores monetários
                 if 'valor' in field_name.lower() or 'total' in field_name.lower():
                     value = safe_float(value)
+                    if found_path:
+                        logger.debug(f"{field_name}: {value} (encontrado em: {found_path})")
                 
                 # Converte datas
                 elif 'data' in field_name.lower():
                     parsed_date = parse_date(str(value))
                     value = parsed_date if parsed_date else value
+                    if found_path:
+                        logger.debug(f"{field_name}: {value} (encontrado em: {found_path})")
+            else:
+                # Log quando não encontra
+                logger.warning(f"{field_name}: NÃO ENCONTRADO em {filename}")
             
             data[field_name] = value
         
         return data
     
+    def _search_recursive(self, data: Any, keys: List[str], context: str = None, 
+                         current_path: str = "") -> Any:
+        """
+        Busca recursiva por chaves em estruturas aninhadas
+        
+        Args:
+            data: Dados para buscar (dict, list, ou valor)
+            keys: Lista de possíveis nomes de chaves
+            context: Contexto opcional (ex: 'emit', 'dest')
+            current_path: Caminho atual (para debug)
+            
+        Returns:
+            Valor encontrado ou None
+        """
+        # Se encontrou contexto específico, prioriza
+        if isinstance(data, dict) and context:
+            if context in data:
+                result = self._search_recursive(data[context], keys, None, f"{current_path}.{context}")
+                if result is not None:
+                    return result
+        
+        # Busca em dicionários
+        if isinstance(data, dict):
+            for key, value in data.items():
+                # Verifica se a chave corresponde
+                if key in keys:
+                    logger.debug(f"Encontrado: {key} em {current_path}.{key}")
+                    return value
+                
+                # Busca recursiva
+                result = self._search_recursive(value, keys, context, f"{current_path}.{key}")
+                if result is not None:
+                    return result
+        
+        # Busca em listas (pega o primeiro item)
+        elif isinstance(data, list) and data:
+            return self._search_recursive(data[0], keys, context, f"{current_path}[0]")
+        
+        return None
+    
     def get_available_fields(self, sample_xml: bytes) -> List[str]:
         """
         Analisa um XML de amostra e retorna todos os campos disponíveis
-        Útil para o usuário escolher quais campos incluir
         
         Args:
             sample_xml: Conteúdo de um XML de exemplo
