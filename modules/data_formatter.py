@@ -5,7 +5,7 @@ import pandas as pd
 import re
 from typing import List
 from utils.logger import logger
-from utils.helpers import safe_float
+from utils.helpers import safe_float, safe_string
 
 class DataFormatter:
     """Formata e limpa dados do DataFrame"""
@@ -69,9 +69,10 @@ class DataFormatter:
             Serie formatada
         """
         def convert_value(val):
-            if pd.isna(val):
+            # Trata None e strings "None"
+            if pd.isna(val) or val is None or str(val).strip() in ["None", ""]:
                 return 0.0
-            return safe_float(val)
+            return safe_float(val, 0.0)
         
         return series.apply(convert_value)
     
@@ -85,7 +86,7 @@ class DataFormatter:
         Returns:
             Documento formatado
         """
-        if pd.isna(doc):
+        if pd.isna(doc) or doc is None or str(doc).strip() in ["None", ""]:
             return ""
         
         # Remove tudo que não é número
@@ -111,7 +112,7 @@ class DataFormatter:
         Returns:
             Texto limpo
         """
-        if pd.isna(text):
+        if pd.isna(text) or text is None or str(text).strip() == "None":
             return ""
         
         text = str(text).strip()
@@ -132,6 +133,9 @@ class DataFormatter:
         filled_df = df.copy()
         
         try:
+            # Primeiro, substitui string "None" por NaN
+            filled_df = filled_df.replace(['None', 'none', 'NONE'], pd.NA)
+            
             if strategy == 'empty':
                 # Preenche com strings vazias para texto, 0 para números
                 for column in filled_df.columns:

@@ -86,16 +86,11 @@ def main():
         
         st.subheader("📖 Como usar")
         st.markdown("""
-        **Aba Conversão:**
         1. Faça upload dos arquivos XML
         2. Escolha as colunas desejadas
         3. Configure o processamento
         4. Clique em "Processar"
-        
-        **Aba Dashboard:**
-        - Visualize estatísticas
-        - Analise gráficos
-        - Exporte para Excel
+        5. Baixe o Excel formatado
         """)
         
         st.divider()
@@ -147,42 +142,71 @@ def show_conversion_tab():
     
     st.divider()
     
-    # Configurações
+    # Configurações com DROPDOWNS
     col_settings, col_columns = st.columns([1, 2])
     
     with col_settings:
-        st.subheader("⚙️ Opções")
+        st.subheader("⚙️ Opções de Processamento")
         
-        remove_duplicates = st.checkbox(
-            "🗑️ Remover duplicatas", 
-            value=False,
-            help="Remove registros idênticos"
+        # Dropdown para remoção de duplicatas
+        remove_duplicates = st.selectbox(
+            "🗑️ Remover duplicatas?",
+            options=["Não", "Sim"],
+            index=0,
+            help="Remove registros idênticos do resultado"
         )
+        remove_duplicates = (remove_duplicates == "Sim")
         
-        include_summary = st.checkbox(
-            "📊 Aba de resumo", 
-            value=True,
+        # Dropdown para aba de resumo
+        include_summary = st.selectbox(
+            "📊 Incluir aba de resumo?",
+            options=["Sim", "Não"],
+            index=0,
             help="Adiciona uma aba com estatísticas no Excel"
         )
+        include_summary = (include_summary == "Sim")
         
-        format_dates = st.checkbox(
-            "📅 Formatar datas", 
-            value=True,
+        # Dropdown para formatação de datas
+        format_dates = st.selectbox(
+            "📅 Formatar datas?",
+            options=["Sim", "Não"],
+            index=0,
             help="Converte datas para formato brasileiro"
         )
+        format_dates = (format_dates == "Sim")
         
-        format_currency = st.checkbox(
-            "💰 Formatar valores", 
-            value=True,
-            help="Formata valores monetários"
+        # Dropdown para formatação de valores
+        format_currency = st.selectbox(
+            "💰 Formatar valores monetários?",
+            options=["Sim", "Não"],
+            index=0,
+            help="Formata valores como moeda brasileira"
         )
+        format_currency = (format_currency == "Sim")
     
     with col_columns:
-        st.subheader("📋 Selecione as Colunas")
+        st.subheader("📋 Selecione as Colunas para Exportar")
         st.caption("Marque apenas os campos que você precisa no Excel")
         
         # Colunas disponíveis
         available_fields = list(config.DEFAULT_XML_FIELDS.keys())
+        
+        # Opção de selecionar/desselecionar tudo
+        col_all1, col_all2 = st.columns(2)
+        with col_all1:
+            select_all = st.button("✅ Selecionar Tudo", use_container_width=True)
+        with col_all2:
+            deselect_all = st.button("❌ Desmarcar Tudo", use_container_width=True)
+        
+        # Inicializa seleção no session_state
+        if 'selected_fields' not in st.session_state:
+            st.session_state.selected_fields = available_fields.copy()
+        
+        # Atualiza seleção baseado nos botões
+        if select_all:
+            st.session_state.selected_fields = available_fields.copy()
+        if deselect_all:
+            st.session_state.selected_fields = []
         
         # Organiza em 3 colunas
         cols = st.columns(3)
@@ -191,28 +215,80 @@ def show_conversion_tab():
         for idx, field in enumerate(available_fields):
             col_idx = idx % 3
             with cols[col_idx]:
-                if st.checkbox(field, value=True, key=f"col_{field}"):
+                is_selected = field in st.session_state.selected_fields
+                if st.checkbox(field, value=is_selected, key=f"col_{field}"):
                     selected_columns.append(field)
         
+        # Atualiza session_state
+        st.session_state.selected_fields = selected_columns
+        
         if not selected_columns:
-            st.warning("⚠️ Selecione pelo menos uma coluna")
+            st.warning("⚠️ Selecione pelo menos uma coluna para continuar")
     
     st.divider()
     
     # Botão de processamento
-    if selected_columns:
-        if st.button("🚀 Processar Arquivos", type="primary", use_container_width=True):
-            process_files(
-                uploaded_files, 
-                selected_columns, 
-                remove_duplicates,
-                format_dates, 
-                format_currency, 
-                include_summary
+    col_btn1, col_btn2 = st.columns([3, 1])
+    
+    with col_btn1:
+        if selected_columns:
+            if st.button("🚀 Processar Arquivos", type="primary", use_container_width=True):
+                process_files(
+                    uploaded_files, 
+                    selected_columns, 
+                    remove_duplicates,
+                    format_dates, 
+                    format_currency, 
+                    include_summary
+                )
+        else:
+            st.button("🚀 Processar Arquivos", disabled=True, use_container_width=True)
+    
+    with col_btn2:
+        st.caption("👈 Configure e processe")
+    
+    st.divider()
+    
+    # ÁREA DE DOWNLOAD DO EXCEL (aparece após processamento)
+    if st.session_state.processing_complete and st.session_state.df_processed is not None:
+        st.success("✅ Processamento concluído! Arquivo pronto para download.")
+        
+        st.subheader("💾 Baixar Resultado")
+        
+        col_file, col_down = st.columns([2, 1])
+        
+        with col_file:
+            filename = st.text_input(
+                "Nome do arquivo Excel:",
+                value=f"notas_fiscais_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                key="export_filename"
             )
-    else:
-        st.button("🚀 Processar Arquivos", disabled=True, use_container_width=True)
-        st.caption("⚠️ Selecione pelo menos uma coluna antes de processar")
+        
+        with col_down:
+            st.write("")
+            st.write("")
+            # Remove colunas de metadados
+            df_export = st.session_state.df_processed.copy()
+            df_export = df_export[[col for col in df_export.columns if not col.startswith('_')]]
+            
+            # Gera Excel
+            exporter = ExcelExporter()
+            include_sum = st.session_state.get('include_summary', True)
+            
+            if include_sum:
+                excel_buffer = exporter.export_with_summary(df_export)
+            else:
+                excel_buffer = exporter.export_to_excel(df_export, filename)
+            
+            if excel_buffer:
+                st.download_button(
+                    label="📥 Baixar Excel",
+                    data=excel_buffer,
+                    file_name=filename,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    type="primary",
+                    use_container_width=True
+                )
 
 def show_dashboard_tab():
     """Exibe a aba de dashboard"""
@@ -292,27 +368,6 @@ def show_dashboard_tab():
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.info("💡 Para ver este gráfico, inclua colunas de **Valor** na conversão.")
-    
-    st.divider()
-    
-    # Exportação
-    st.header("💾 Exportar Resultado")
-    
-    col1, col2 = st.columns([3, 1])
-    
-    with col1:
-        filename = st.text_input(
-            "Nome do arquivo:",
-            value=f"notas_fiscais_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-            key="export_filename"
-        )
-    
-    with col2:
-        st.write("")
-        st.write("")
-        if st.button("📥 Baixar Excel", type="primary", use_container_width=True):
-            include_summary = st.session_state.get('include_summary', True)
-            export_excel(df, filename, include_summary)
 
 def process_files(uploaded_files, selected_columns, remove_duplicates, 
                  format_dates, format_currency, include_summary):
@@ -356,11 +411,16 @@ def process_files(uploaded_files, selected_columns, remove_duplicates,
                         if xml_files:
                             sample_fields = parser.get_available_fields(xml_files[0][1])
                             st.write("**Campos disponíveis no XML:**")
-                            st.code("\n".join(sample_fields[:50]))  # Mostra primeiros 50
+                            st.code("\n".join(sample_fields[:50]))
                     
                     return
                 
-                # 3. Filtrar colunas
+                # 3. Substituir valores None por strings vazias ou zeros
+                progress_bar.progress(45, text="🧹 Limpando dados...")
+                for col in df.columns:
+                    df[col] = df[col].replace(['None', 'none', None], '')
+                
+                # 4. Filtrar colunas
                 progress_bar.progress(50, text="🔍 Filtrando colunas...")
                 available_cols = [col for col in selected_columns if col in df.columns]
                 
@@ -377,10 +437,9 @@ def process_files(uploaded_files, selected_columns, remove_duplicates,
                 metadata_cols = [col for col in df.columns if col.startswith('_')]
                 df = df[available_cols + metadata_cols]
                 
-                # 4. Processar
-                progress_bar.progress(70, text="⚙️ Processando dados...")
-                
+                # 5. Remover duplicatas
                 if remove_duplicates:
+                    progress_bar.progress(60, text="🗑️ Removendo duplicatas...")
                     filter_handler = DataFilter()
                     original_len = len(df)
                     df = filter_handler.remove_duplicates(df)
@@ -388,17 +447,27 @@ def process_files(uploaded_files, selected_columns, remove_duplicates,
                     if removed > 0:
                         st.info(f"🗑️ Removidas {removed} linha(s) duplicada(s)")
                 
-                # 5. Formatar
-                progress_bar.progress(85, text="✨ Formatando...")
-                
-                if format_dates or format_currency:
-                    formatter = DataFormatter()
-                    df = formatter.format_dataframe(df)
+                # 6. Formatar dados
+                progress_bar.progress(75, text="✨ Formatando dados...")
                 
                 formatter = DataFormatter()
+                
+                if format_dates or format_currency:
+                    df = formatter.format_dataframe(df)
+                
+                # Preenche valores faltantes
                 df = formatter.fill_missing_values(df, strategy='empty')
                 
-                # 6. Finalizar
+                # 7. Validação final - remove None restantes
+                progress_bar.progress(90, text="✅ Finalizando...")
+                df = df.fillna('')
+                
+                # Garante que colunas de valor são numéricas
+                for col in df.columns:
+                    if any(keyword in col.lower() for keyword in ['valor', 'total', 'preco', 'custo']):
+                        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+                
+                # 8. Finalizar
                 progress_bar.progress(100, text="✅ Concluído!")
                 
                 st.session_state.df_processed = df
@@ -408,18 +477,29 @@ def process_files(uploaded_files, selected_columns, remove_duplicates,
                 logger.info(f"Processamento OK: {len(df)} registros, {len(available_cols)} colunas")
                 
                 st.success(f"""
-                ✅ **Processamento Concluído!**
+                ✅ **Processamento Concluído com Sucesso!**
+                
+                📊 **Estatísticas:**
                 - {len(df)} registros processados
                 - {len(available_cols)} coluna(s) extraída(s)
-                - Acesse a aba **Dashboard** para visualizar
+                - {len(xml_files)} arquivo(s) XML processado(s)
+                
+                💡 **Próximos passos:**
+                - Role para baixo para **baixar o Excel**
+                - Ou acesse a aba **Dashboard** para visualizar gráficos
                 """)
                 
                 # Debug info
                 if st.session_state.show_debug:
                     with st.expander("🐛 Informações de Debug"):
                         st.write("**Colunas extraídas:**", available_cols)
-                        st.write("**Amostra dos dados:**")
+                        st.write("**Tipos de dados:**")
+                        st.write(df.dtypes)
+                        st.write("**Amostra dos dados (primeiras 3 linhas):**")
                         st.dataframe(df.head(3))
+                        st.write("**Valores únicos por coluna:**")
+                        for col in df.columns[:5]:
+                            st.write(f"- {col}: {df[col].nunique()} valores únicos")
     
     except Exception as e:
         st.error(f"❌ Erro durante o processamento: {str(e)}")
@@ -428,37 +508,6 @@ def process_files(uploaded_files, selected_columns, remove_duplicates,
         if st.session_state.show_debug:
             st.exception(e)
 
-def export_excel(df, filename, include_summary):
-    """Exporta DataFrame para Excel"""
-    
-    try:
-        with st.spinner("📥 Gerando Excel..."):
-            exporter = ExcelExporter()
-            
-            # Remove metadados
-            export_df = df[[col for col in df.columns if not col.startswith('_')]].copy()
-            
-            if include_summary:
-                excel_buffer = exporter.export_with_summary(export_df)
-            else:
-                excel_buffer = exporter.export_to_excel(export_df, filename)
-            
-            if excel_buffer:
-                st.download_button(
-                    label="📥 Clique para baixar o arquivo Excel",
-                    data=excel_buffer,
-                    file_name=filename,
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
-                st.success("✅ Excel gerado com sucesso!")
-            else:
-                st.error("❌ Erro ao gerar Excel")
-    
-    except Exception as e:
-        st.error(f"❌ Erro ao exportar: {str(e)}")
-        logger.error(f"Erro na exportação: {e}")
-
-# Ponto de entrada
+# Ponto de entrada da aplicação
 if __name__ == "__main__":
     main()

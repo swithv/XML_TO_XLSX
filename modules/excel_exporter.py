@@ -35,9 +35,13 @@ class ExcelExporter:
         output = BytesIO()
         
         try:
+            # Remove valores None antes de exportar
+            df_clean = df.copy()
+            df_clean = df_clean.fillna('')
+            
             # Exporta para Excel
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df.to_excel(writer, index=False, sheet_name='Dados')
+                df_clean.to_excel(writer, index=False, sheet_name='Dados')
                 
                 # Acessa o workbook para aplicar formatações
                 workbook = writer.book
@@ -45,9 +49,9 @@ class ExcelExporter:
                 
                 # Aplica formatações
                 self._format_header(worksheet)
-                self._format_columns(worksheet, df)
-                self._adjust_column_widths(worksheet, df)
-                self._apply_borders(worksheet, len(df))
+                self._format_columns(worksheet, df_clean)
+                self._adjust_column_widths(worksheet, df_clean)
+                self._apply_borders(worksheet, len(df_clean))
             
             output.seek(0)
             logger.info(f"Excel exportado com sucesso: {len(df)} linhas")
@@ -89,14 +93,22 @@ class ExcelExporter:
             if self._is_monetary_column(column):
                 for row in range(2, len(df) + 2):
                     cell = worksheet[f'{column_letter}{row}']
-                    cell.number_format = 'R$ #,##0.00'
+                    # Garante que é número antes de formatar
+                    try:
+                        if cell.value and cell.value != '':
+                            cell.value = float(cell.value)
+                            cell.number_format = 'R$ #,##0.00'
+                    except:
+                        cell.value = 0.0
+                        cell.number_format = 'R$ #,##0.00'
                     cell.alignment = Alignment(horizontal='right')
             
             # Formata colunas de data
             elif 'data' in column.lower() or pd.api.types.is_datetime64_any_dtype(df[column]):
                 for row in range(2, len(df) + 2):
                     cell = worksheet[f'{column_letter}{row}']
-                    cell.number_format = 'DD/MM/YYYY HH:MM'
+                    if cell.value and cell.value != '':
+                        cell.number_format = 'DD/MM/YYYY HH:MM'
                     cell.alignment = Alignment(horizontal='center')
             
             # Centraliza colunas de documento (CPF/CNPJ)
@@ -122,8 +134,9 @@ class ExcelExporter:
             # Verifica os valores da coluna (primeiras 100 linhas)
             for value in df[column].head(100):
                 try:
-                    if len(str(value)) > max_length:
-                        max_length = len(str(value))
+                    if value and str(value) != 'None' and str(value) != '':
+                        if len(str(value)) > max_length:
+                            max_length = len(str(value))
                 except:
                     pass
             
@@ -172,12 +185,16 @@ class ExcelExporter:
         output = BytesIO()
         
         try:
+            # Remove valores None
+            df_clean = df.copy()
+            df_clean = df_clean.fillna('')
+            
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 # Aba de dados
-                df.to_excel(writer, index=False, sheet_name='Dados')
+                df_clean.to_excel(writer, index=False, sheet_name='Dados')
                 
                 # Aba de resumo
-                summary_data = self._create_summary(df)
+                summary_data = self._create_summary(df_clean)
                 summary_df = pd.DataFrame(list(summary_data.items()), 
                                          columns=['Métrica', 'Valor'])
                 summary_df.to_excel(writer, index=False, sheet_name='Resumo')
@@ -186,8 +203,11 @@ class ExcelExporter:
                 for sheet_name in writer.sheets:
                     worksheet = writer.sheets[sheet_name]
                     self._format_header(worksheet)
-                    self._adjust_column_widths(worksheet, 
-                                              df if sheet_name == 'Dados' else summary_df)
+                    if sheet_name == 'Dados':
+                        self._format_columns(worksheet, df_clean)
+                        self._adjust_column_widths(worksheet, df_clean)
+                    else:
+                        self._adjust_column_widths(worksheet, summary_df)
             
             output.seek(0)
             return output
@@ -214,6 +234,7 @@ class ExcelExporter:
         # Adiciona soma de colunas monetárias
         for column in df.columns:
             if self._is_monetary_column(column) and pd.api.types.is_numeric_dtype(df[column]):
-                summary[f'Total {column}'] = df[column].sum()
+                total = df[column].sum()
+                summary[f'Total {column}'] = f"R$ {total:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
         
         return summary

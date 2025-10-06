@@ -32,6 +32,9 @@ def format_currency(value: float, currency: str = "R$") -> str:
         String formatada
     """
     try:
+        if value is None or value == "" or str(value) == "None":
+            return f"{currency} 0,00"
+        value = float(value)
         return f"{currency} {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     except:
         return f"{currency} 0,00"
@@ -46,12 +49,19 @@ def parse_date(date_string: str) -> datetime:
     Returns:
         Objeto datetime ou None se falhar
     """
+    if not date_string or str(date_string) == "None" or date_string == "":
+        return None
+        
+    # Remove timezone se existir (ex: -03:00)
+    date_string = str(date_string).split('-03:00')[0].split('+')[0].strip()
+    
     formats = [
         '%Y-%m-%dT%H:%M:%S',
         '%Y-%m-%d %H:%M:%S',
         '%d/%m/%Y %H:%M:%S',
         '%Y-%m-%d',
-        '%d/%m/%Y'
+        '%d/%m/%Y',
+        '%Y%m%d'
     ]
     
     for fmt in formats:
@@ -88,6 +98,10 @@ def get_nested_value(data: Dict, key_path: str, default: Any = None) -> Any:
             if value is None:
                 return default
         
+        # Retorna default se valor for vazio ou "None"
+        if value == "" or str(value) == "None":
+            return default
+            
         return value
     except:
         return default
@@ -104,12 +118,33 @@ def safe_float(value: Any, default: float = 0.0) -> float:
         Float convertido
     """
     try:
+        # Verifica se é None ou string "None"
+        if value is None or value == "" or str(value).strip() in ["None", ""]:
+            return default
+            
         if isinstance(value, str):
             # Remove pontos de milhares e substitui vírgula por ponto
-            value = value.replace('.', '').replace(',', '.')
-        return float(value)
+            value = value.strip().replace('.', '').replace(',', '.')
+        
+        result = float(value)
+        return result
     except:
         return default
+
+def safe_string(value: Any, default: str = "") -> str:
+    """
+    Converte valor para string de forma segura
+    
+    Args:
+        value: Valor a converter
+        default: Valor padrão se for None
+        
+    Returns:
+        String convertida
+    """
+    if value is None or str(value).strip() == "None":
+        return default
+    return str(value).strip()
 
 def truncate_text(text: str, max_length: int = 50) -> str:
     """
